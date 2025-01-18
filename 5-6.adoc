@@ -46,7 +46,7 @@ interface IModeManager {
 }
 
 interface IButton {
-  + onClick(): bool
+  + IsPressed(): bool
 }
 
 class ModeManager {
@@ -60,7 +60,7 @@ class ModeManager {
 class Button<TPort, pinNumber> {
   - bool currentStatus
   - std::uint32_t buttonPortStatus
-  + onClick(): bool
+  + IsPressed(): bool
 }
 
 class ModeConfig {
@@ -75,9 +75,9 @@ IButton <|-- Button
 
 Класс Button<TPort, pinNumber> предназначен для управления и обработки ввода с кнопки (или других подобных устройств) в микроконтроллерных или встроенных системах. Этот шаблонный класс, как видно из его структуры, абстрагирует взаимодействие с кнопкой, предоставляя функциональность для определения событий нажатия.
 
-Ниже представлена реализация каждого класса на основе диагараммы UML:
+Ниже представлена реализация каждого класса на основе диаграммы UML:
 
-Код для реализации IModeManager:
+Код для объявления класса IModeManager:
 
 [source, cpp]
 ----
@@ -95,7 +95,7 @@ public:
 #endif
 ----
 
-Код для реализации ModeConfig:
+Код для объявления класса ModeConfig:
 
 [source, cpp]
 ----
@@ -110,7 +110,7 @@ using tMode = std::array<IMode*, 3>;
 #endif
 ----
 
-Код для реализации ModeManager (тело класса):
+Код для объявления класса ModeManager (тело класса):
 
 [source, cpp]
 ----
@@ -135,7 +135,7 @@ private:
 #endif
 ----
 
-Код для реализации ModeManager (.cpp):
+Код для объявления класса ModeManager (.cpp):
 
 [source, cpp]
 ----
@@ -146,24 +146,19 @@ ModeManager::ModeManager(tMode& modeArr) : modes(modeArr), currentModeType(0)
 }
 
 void ModeManager::InitModeManager() {
-    if (modes[currentModeType]) {
         modes[currentModeType]->Init();
-    }
 }
 
 void ModeManager::UpdateModeManager() {
-    if (modes[currentModeType]) {
         modes[currentModeType]->Update();
-    }
 }
 
 void ModeManager::SwitchModeManager() {
-    currentModeType = (currentModeType + 1) % 3; 
-    if (modes[currentModeType]) {
+    currentModeType = (currentModeType + 1) % sizeof(modes); 
         modes[currentModeType]->Init();
-    }
 }
 ----
+
 
 Далее необходимо реализовать переключение режимов с помощью кнопки, для этого перейдем к созданию класс для кнопки.
 
@@ -174,7 +169,7 @@ void ModeManager::SwitchModeManager() {
 
 Далее создадим классы `IButton` и `Button`.
 
-В классе IButton определён метод onClick(), который необходимо реализовать в наследуемых классах. Этот метод предназначен для проверки, была ли нажата кнопка:
+В классе IButton определён метод IsPressed(), который необходимо реализовать в наследуемых классах. Этот метод предназначен для проверки, была ли нажата кнопка:
 
 [source, cpp]
 ----
@@ -183,12 +178,12 @@ void ModeManager::SwitchModeManager() {
 
 class IButton {
 public:
-    virtual bool onClick() = 0;
+    virtual bool IsPressed() = 0;
 };
 #endif
 ----
 
-Класс Button, наследующий от IButton, реализует метод onClick(). Этот метод проверяет состояние кнопки в определённом порту и возвращает true, если кнопка нажата (0 в состоянии порта):
+Класс Button, наследующий от IButton, реализует метод IsPressed(). Этот метод проверяет состояние кнопки в определённом порту и возвращает true, если кнопка нажата (0 в состоянии порта):
 
 [source, cpp]
 ----
@@ -196,14 +191,14 @@ public:
 #define BUTTON_H
 #include "IButton.h"
 
-template<typename Tport, int punNumber>
+template<typename TPort, int pinNumber>
 class Button : public IButton {
 public:
       bool onClick() override
       {
-         return (Tport::IDR::Get() & (1 << punNumber)) == 0;
+         return (TPort::IDR::Get() & (1 << pinNumber)) == 0;
       }
-      
+  // Текущее состояние кнопки: true, если кнопка нажата, и false, если отпущена.    
 private:
   bool currentStatus;
   std::uint32_t buttonPortStatus;
@@ -211,7 +206,7 @@ private:
 #endif
 ----
 
-Шаблонные параметры Tport и pinNumber позволяют адаптировать класс Button для работы с конкретными портами и номерами пинов. Для проверки состояния порта и определения сигнала на заданном пине используется метод Get() из Tport::IDR.
+Шаблонные параметры TPort и pinNumber позволяют адаптировать класс Button для работы с конкретными портами и номерами пинов. Для проверки состояния порта и определения сигнала на заданном пине используется метод Get() из TPort::IDR.
 
 === Выводы по работе с классами
 
@@ -242,7 +237,7 @@ private:
 * Гибкость в управлении режимами.
 * Удобство при добавлении новых режимов.
 
-Был создан класс Button, который обеспечивает взаимодействие пользователя с устройством. Этот класс отслеживает состояние кнопки, проверяет её на нажатие и выполняет соответствующее действие. Это позволяет управлять функциями устройства через пользовательский ввод.
+Был создан класс Button, который обеспечивает взаимодействие пользователя с устройством. Этот класс отслеживает состояние кнопки, проверяет её на нажатие. Это позволяет управлять функциями устройства через пользовательский ввод.
 
 == Настройка тактирования платы
 
@@ -273,13 +268,11 @@ std::uint32_t SystemCoreClock = 16'000'000U;
 extern "C" 
 int __low_level_init(void)
 
-  //Switch on external 16 MHz oscillator
   RCC::CR::HSION::On::Set();
   while (RCC::CR::HSIRDY::NotReady::IsSet())
   {
 
   }
-  //Switch system clock on external oscillator
   RCC::CFGR::SW::Hsi::Set();
   while (!RCC::CFGR::SWS::Hsi::IsSet())
   {
@@ -356,40 +349,44 @@ f = 13.666МГц, например, выберем: PLLM = 8; PLLN = 137; PLLP =
 std::uint32_t SystemCoreClock = 13'666'000U;
 
 extern "C" 
-int __low_level_init(void) {
+int __low_level_init(void){
+  
+  RCC::CR::HSEON::On::Set();
 
-    // Включаем внешний осциллятор (HSE)
-    RCC::CR::HSEON::On::Set();
-    while (!RCC::CR::HSERDY::Ready::IsSet()) {
-    }
+  RCC::PLLCFGR::PLLSRC::HseSource::Set();
 
-    RCC::PLLCFGR::PLLSRC::HseSource::Set();
-
-    // 137
+    //137
     RCC::PLLCFGR::PLLN0::Set(0b10001001);
    
-    // 8
+
+    //8
     RCC::PLLCFGR::PLLP0::Set(0b11);
   
-    // 8
-    RCC::PLLCFGR::PLLM0::Set(0b001000);
 
-    RCC::CR::HSION::Off::Set();
+    //10
+    RCC::PLLCFGR::PLLM0::Set(0b001011);
+    
 
+   
     RCC::CR::PLLON::On::Set();
     while (RCC::CR::PLLRDY::Unclocked::IsSet()) {
+        
     }
 
     RCC::CFGR::SW::Pll::Set();
     while (!RCC::CFGR::SWS::Pll::IsSet()) {
+      
     }
 
+   
     RCC::APB2ENR::SYSCFGEN::Enable::Set();
 
     return 1;
 }
 
 ----
+
+
 
 == Заключение
 
