@@ -152,7 +152,7 @@ void ModeManager::UpdateModeManager() {
 }
 
 void ModeManager::SwitchModeManager() {
-    currentModeType = (currentModeType + 1) % sizeof(modes); 
+    currentModeType = (currentModeType + 1) % std::size(modes); 
         modes[currentModeType]->Init();
 }
 ----
