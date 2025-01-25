@@ -6,7 +6,6 @@
 :toclevels: 2
 :figure-caption: Рисунок
 :table-caption: Таблица
-
 include::tituln.adoc[]
 
 == Принцип Single Responsibility
