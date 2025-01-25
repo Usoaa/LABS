@@ -58,8 +58,6 @@ class ModeManager {
 }
 
 class Button<TPort, pinNumber> {
-  - bool currentStatus
-  - std::uint32_t buttonPortStatus
   + IsPressed(): bool
 }
 
@@ -198,10 +196,6 @@ public:
       {
          return (TPort::IDR::Get() & (1 << pinNumber)) == 0;
       }
-  // Текущее состояние кнопки: true, если кнопка нажата, и false, если отпущена.    
-private:
-  bool currentStatus;
-  std::uint32_t buttonPortStatus;
 };
 #endif
 ----
@@ -273,6 +267,7 @@ int __low_level_init(void)
   {
 
   }
+  //Переключение на внутренний генератор
   RCC::CFGR::SW::Hsi::Set();
   while (!RCC::CFGR::SWS::Hsi::IsSet())
   {
@@ -352,6 +347,10 @@ extern "C"
 int __low_level_init(void){
   
   RCC::CR::HSEON::On::Set();
+  while (RCC::CR::HSERDY::NotReady::IsSet())
+  {
+
+  }
 
   RCC::PLLCFGR::PLLSRC::HseSource::Set();
 
