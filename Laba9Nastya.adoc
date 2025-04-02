@@ -1,0 +1,266 @@
+= Отчет по лабораторной работе №9
+Выполнила студентка группы КЭ-413, Кузнецова А.С.
+:imagesdir: Pic
+:toc:
+:toc-title: Оглавление
+:toclevels: 2
+:figure-caption: Рисунок
+:table-caption: Таблица
+
+include::titul9.adoc[]
+
+== Архитектура NVIC и EXTI в STM32F4
+
+В микроконтроллерах STM32F4, построенных на ядре Cortex-M4, управление прерываниями реализовано через контроллер NVIC (вложенный векторный контроллер прерываний) и модуль EXTI (контроллер внешних прерываний/событий). NVIC отвечает за обработку запросов прерываний, а EXTI связывает внешние события (например, сигналы на выводах GPIO) с NVIC.
+
+=== Основы работы NVIC
+
+NVIC поддерживает до 82 каналов прерываний (IRQ) в STM32F411, каждому из которых можно назначить приоритет (4-битное значение: 0 — высший, 15 — низший). Он позволяет выполнять вложение прерываний: запрос с более высоким приоритетом прерывает текущий обработчик с меньшим приоритетом.
+
+=== Задачи модуля EXTI
+
+EXTI отслеживает изменения на 16 линиях (EXTI0–EXTI15), связанных с выводами GPIO (PAx, PBx и т.д.). Каждая линия настраивается на срабатывание по фронту сигнала (нарастание, спад или оба) и генерирует запрос в NVIC при событии.
+Схема взаимодействия:
+Событие на GPIO (например, PC13) фиксируется EXTI.
+
+EXTI отправляет запрос в NVIC.
+
+NVIC вызывает соответствующий обработчик, если прерывание разрешено.
+
+Особенности линий EXTI:
+
+. EXTI0–EXTI4: индивидуальные IRQ.
+
+. EXTI5–EXTI9: общий IRQ (EXTI9_5).
+
+. EXTI10–EXTI15: общий IRQ (EXTI15_10).
+
+== Структура классов проекта
+
+Проект построен на принципах ООП с использованием шаблонов:
+ButtonExti — отвечает за обработку прерываний от кнопки, вызывает переключение режимов.
+
+ModeManager — управляет режимами работы системы (переключение, обновление).
+
+Timer — генерирует периодические прерывания для обновления состояния.
+
+ModeManager выступает координатором, принимая сигналы от кнопки и таймера.
+
+=== Настройка линии EXTI13
+
+Для работы с кнопкой на PC13 выполняются следующие шаги:
+
+. Настройка GPIOC13 как входа.
+
+. Активация SYSCFG.
+
+. Привязка EXTI13 к PC13.
+
+. Установка срабатывания по спадающему фронту.
+
+. Разрешение прерывания в EXTI.
+
+. Сброс флага запроса.
+
+. Активация вектора в NVIC.
+
+Пример кода:
+
+[source,cpp]
+----
+RCC::AHB1ENR::GPIOCEN::Enable::Set();
+GPIOC::MODER::MODER13::Input::Set();
+
+RCC::APB2ENR::SYSCFGEN::Enable::Set();
+SYSCFG::EXTICR4::EXTI13::Value2::Set();
+
+EXTI::FTSR::TR13::Value1::Set();
+EXTI::RTSR::TR13::Value0::Set();
+EXTI::PR::PR13::Value1::Set();
+EXTI::IMR::MR13::Value1::Set();
+
+NVIC::ISER1::Write(1 << 8U); // EXTI15_10
+----
+
+== Реализация обработки кнопки
+
+Класс ButtonExti привязан к общему IRQ EXTI15_10:
+
+[source,cpp]
+----
+template<auto &modeManager>
+class ButtonExti {
+public:
+    static void HandleClick() {
+        if (EXTI::PR::PR13::Value1::IsSet()) {
+            modeManager.SwitchModeManager();
+            EXTI::PR::PR13::Value1::Set(); // Сброс флага
+        }
+    }
+};
+----
+
+== Конфигурация таймера
+
+Таймер TIM5 настроен на генерацию прерываний каждые 500 мс:
+
+[source,cpp]
+----
+TIM5::PSC::Write(SystemCoreClock / 1000U);
+TIM5::ARR::Write(500U);
+TIM5::DIER::UIE::Value1::Set();
+TIM5::CR1::CEN::Enable::Set();
+----
+
+== Таблица векторов прерываний
+
+На этапе компиляции формируется таблица векторов, связывающая обработчики с соответствующими прерываниями. Линия EXTI13 входит в группу EXTI15_10, а таймер TIM5 имеет собственный вектор. Пример структуры таблицы:
+
+[source,cpp]
+----
+ButtonExti<modeManager>::HandleClick, // Вектор для EXTI15_10
+Timer<TIM5, modeManager>::OverloadHandler // Вектор для TIM5
+----
+
+Каждый элемент таблицы указывает на функцию, которая будет выполнена при срабатывании соответствующего прерывания, обеспечивая точное соответствие между событием и его обработкой.
+
+
+== Взаимодействие компонентов
+
+Диаграмма:
+
+[plantuml, exti_sequence, svg]
+----
+hide footbox
+
+participant "GPIOC13"
+participant "EXTI13"
+participant "NVIC"
+participant "ButtonExti::HandleClick"
+participant "ModeManager"
+
+"GPIOC13" -> "EXTI13" : Изменение уровня (спад)
+"EXTI13" -> "NVIC" : Запрос прерывания EXTI15_10
+"NVIC" -> "ButtonExti::HandleClick" : Вызов обработчика
+"ButtonExti::HandleClick" -> "EXTI13" : Проверка флага PR13
+"EXTI13" --> "ButtonExti::HandleClick" : Флаг установлен
+"ButtonExti::HandleClick" -> "ModeManager" : SwitchModeManager()
+"ModeManager" --> "ButtonExti::HandleClick" : Подтверждение переключения
+"ButtonExti::HandleClick" -> "EXTI13" : Сброс флага PR13
+
+@enduml
+----
+
+== Итоги работы системы
+
+Кнопка переключает режимы работы светодиодов, а таймер обновляет их состояние каждые 500 мс.
+
+== Вывод по работе
+
+В процессе реализации системы обработки нажатия кнопки на микроконтроллере STM32F411 был применен контроллер внешних прерываний EXTI13. Использование модульного подхода с элементами шаблонного программирования позволило создать гибкий и переиспользуемый код, который легко адаптировать под другие задачи. Основные компоненты — классы ButtonExti, ModeManager и Timer — взаимодействуют через вызовы методов, обеспечивая четкое разделение обязанностей и логичную структуру программы.
+
+Также, в процессе выполнения работы были выялены следующие преимущества использования EXTI:
+
+* Мгновенная реакция: Внешние прерывания позволяют системе оперативно реагировать на нажатие кнопки без задержек.
+
+* Снижение нагрузки на процессор: Отсутствует необходимость постоянного опроса состояния GPIO в цикле, что экономит вычислительные ресурсы.
+
+* Простота расширения: Легко добавить обработку других линий EXTI или событий, не перестраивая основную архитектуру кода.
+
+* Энергоэффективность: Процессор может оставаться в состоянии пониженного энергопотребления, пока не произойдет событие, что критично для встраиваемых систем.
+
+Применение EXTI совместно с NVIC обеспечивает надежную и эффективную обработку внешних событий, что делает систему отзывчивой и оптимизированной для реальных приложений.
+
+== Исходные коды проекта
+
+[source,cpp]
+----
+// Timer шаблон
+template<typename TIMRegs, auto &modeManager>
+class Timer {
+public:
+    static void OverloadHandler() {
+        if (TIMRegs::SR::UIF::InterruptPending::IsSet()) {
+            modeManager.UpdateModeManager();
+            TIMRegs::SR::UIF::Set(0);
+        }
+    }
+};
+----
+
+[source,cpp]
+----
+// ButtonExti шаблон
+template<auto &modeManager>
+class ButtonExti {
+public:
+    static void HandleClick() {
+        if (EXTI::PR::PR13::Value1::IsSet()) {
+            modeManager.SwitchModeManager();
+            EXTI::PR::PR13::Value1::Set();
+        }
+    }
+};
+----
+
+[source,cpp]
+----
+// Векторная таблица
+extern "C" const tIntVectItem __vector_table[] = {
+  ...
+  ButtonExti<modeManager>::HandleClick,     // EXTI Line 15..10
+  ...
+  Timer<TIM5, modeManager>::OverloadHandler, // TIM5 global interrupt
+  ...
+};
+----
+
+[source,cpp]
+----
+// Инициализация и main
+int __low_level_init(void) {
+    RCC::CR::HSION::On::Set();
+    RCC::CFGR::SW::Hsi::Set();
+    RCC::APB2ENR::SYSCFGEN::Enable::Set();
+    STK::CTRL::CLKSOURCE::CpuClock::Set();
+    RCC::APB1ENR::TIM5EN::Enable::Set();
+    RCC::AHB1ENR::GPIOAEN::Enable::Set();
+    RCC::AHB1ENR::GPIOCEN::Enable::Set();
+
+    GPIOA::MODER::MODER5::Output::Set();
+    GPIOC::MODER::MODER5::Output::Set();
+    GPIOC::MODER::MODER8::Output::Set();
+    GPIOC::MODER::MODER9::Output::Set();
+    GPIOC::MODER::MODER13::Input::Set();
+
+    SYSCFG::EXTICR4::EXTI13::Value2::Set();
+    EXTI::FTSR::TR13::Value1::Set();
+    EXTI::RTSR::TR13::Value0::Set();
+    EXTI::PR::PR13::Value1::Set();
+    NVIC::ISER1::Write(1 << 8U);   // EXTI15_10
+    NVIC::ISER1::Write(1 << 18U);  // TIM5
+
+    const auto TimerDivider = SystemCoreClock / 1'000U;
+    TIM5::PSC::Write(TimerDivider);
+    TIM5::CR1::URS::Value1::Set();
+    TIM5::ARR::Write(500U);
+    TIM5::SR::UIF::Set(0);
+    TIM5::CNT::Write(0);
+    TIM5::DIER::UIE::Value1::Set();
+
+    return 1;
+}
+
+int main() {
+    EXTI::IMR::MR13::Value1::Set();
+    TIM5::CR1::CEN::Enable::Set();
+    modeManager.InitModeManager();
+    for (;;) {}
+    return 1;
+}
+----
+
+
+
+
+
